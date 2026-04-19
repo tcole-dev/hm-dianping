@@ -54,7 +54,7 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
         }
         // 存在，写入redis
 //        stringRedisTemplate.opsForValue().set(key, JSONUtil.toJsonStr(shop), 30L, TimeUnit.MINUTES);
-        cacheUtil.setWithLogicExpire(RedisConstants.CACHE_SHOP_KEY, shop, 30L, TimeUnit.MINUTES);
+        cacheUtil.setWithLogicExpire(RedisConstants.CACHE_SHOP_KEY +  id, shop, 30L, TimeUnit.MINUTES);
         return Result.ok(shop);
     }
 
