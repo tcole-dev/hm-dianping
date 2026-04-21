@@ -10,6 +10,7 @@ import org.springframework.stereotype.Component;
 import java.util.Date;
 import java.util.Map;
 
+@Deprecated
 @Component
 public class JwtUtil {
     @Autowired
