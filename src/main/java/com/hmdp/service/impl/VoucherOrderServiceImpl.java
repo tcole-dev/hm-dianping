@@ -9,7 +9,9 @@ import com.hmdp.service.IVoucherOrderService;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.hmdp.utils.GlobalUniqueIdUtil;
 import com.hmdp.utils.UserHolder;
+import org.springframework.aop.framework.AopContext;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 
@@ -33,17 +35,38 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
     @Override
     public Result seckillVoucher(Long voucherId) {
         Long userId = UserHolder.getUser().getId();
+        synchronized (userId.toString().intern()) {
+            // 在类内部调用事务方法时会因无法绕过this而无法代理，所以需要主动获取代理对象
+            VoucherOrderServiceImpl proxyVoucherOrderService = (VoucherOrderServiceImpl) AopContext.currentProxy();
+            return proxyVoucherOrderService.createVoucherOrder(voucherId);
+        }
+    }
+
+    // 避免库存扣减，但订单创建失败等情况
+    @Transactional
+    public Result createVoucherOrder(Long voucherId) {
+        Long userId = UserHolder.getUser().getId();
+
+        // 修改库存可用乐观锁，但插入订单数据则需要悲观锁，这里对每个userId加锁，避免一个用户同时发起两个请求时，违反一人一卖的原则
+        // intern()表示从常量池中拿到数据，userId.toString()其实是每次都new String对象，无法真正锁住
         // 1.查询优惠券
         SeckillVoucher seckillVoucher = seckillVoucherService.getById(voucherId);
         // 2.判断秒杀是否开始/结束
-        if (seckillVoucher.getBeginTime().isBefore(LocalDateTime.now())) {
+        if (seckillVoucher.getBeginTime().isAfter(LocalDateTime.now())) {
             return Result.fail("秒杀尚未开始");
         }
-        if (seckillVoucher.getEndTime().isAfter(LocalDateTime.now())) {
+        if (seckillVoucher.getEndTime().isBefore(LocalDateTime.now())) {
             return Result.fail("秒杀已经结束");
         }
         if (seckillVoucher.getStock() < 1) {
             return Result.fail("库存不足");
+        }
+        long userSeckillCount = query()
+                .eq("user_id", userId)
+                .eq("voucher_id", voucherId)
+                .count();
+        if (userSeckillCount > 0) {
+            return Result.fail("用户已经购买过");
         }
         // 3.扣减库存
         boolean result = seckillVoucherService.update()
@@ -58,11 +81,11 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
         VoucherOrder voucherOrder = new VoucherOrder();
         voucherOrder.setUserId(userId);
         voucherOrder.setVoucherId(voucherId);
+
         long orderId = globalUniqueIdUtil.nextId("order");
         voucherOrder.setId(orderId);
 
         save(voucherOrder);
-
         return Result.ok(orderId);
     }
 }
