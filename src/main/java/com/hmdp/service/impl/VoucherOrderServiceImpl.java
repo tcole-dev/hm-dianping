@@ -8,8 +8,10 @@ import com.hmdp.service.ISeckillVoucherService;
 import com.hmdp.service.IVoucherOrderService;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.hmdp.utils.GlobalUniqueIdUtil;
+import com.hmdp.utils.SimpleRedisLock;
 import com.hmdp.utils.UserHolder;
 import org.springframework.aop.framework.AopContext;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -27,19 +29,31 @@ import java.time.LocalDateTime;
 public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, VoucherOrder> implements IVoucherOrderService {
     private final ISeckillVoucherService seckillVoucherService;
     private final GlobalUniqueIdUtil globalUniqueIdUtil;
-    public VoucherOrderServiceImpl(ISeckillVoucherService seckillVoucherService, GlobalUniqueIdUtil globalUniqueIdUtil) {
+    private final StringRedisTemplate stringRedisTemplate;
+    public VoucherOrderServiceImpl(StringRedisTemplate stringRedisTemplate, ISeckillVoucherService seckillVoucherService, GlobalUniqueIdUtil globalUniqueIdUtil) {
         this.seckillVoucherService = seckillVoucherService;
+        this.stringRedisTemplate = stringRedisTemplate;
         this.globalUniqueIdUtil = globalUniqueIdUtil;
     }
 
+    /**
+     * 秒杀优惠券
+     * @param voucherId 优惠券id
+     * @return 订单id
+     */
     @Override
     public Result seckillVoucher(Long voucherId) {
         Long userId = UserHolder.getUser().getId();
-        synchronized (userId.toString().intern()) {
-            // 在类内部调用事务方法时会因无法绕过this而无法代理，所以需要主动获取代理对象
-            VoucherOrderServiceImpl proxyVoucherOrderService = (VoucherOrderServiceImpl) AopContext.currentProxy();
-            return proxyVoucherOrderService.createVoucherOrder(voucherId);
-        }
+        SimpleRedisLock simpleRedisLock = new SimpleRedisLock(stringRedisTemplate);
+
+        simpleRedisLock.tryLock(60L);
+
+        // 在类内部调用事务方法时会因无法绕过this而无法代理，所以需要主动获取代理对象
+        VoucherOrderServiceImpl proxyVoucherOrderService = (VoucherOrderServiceImpl) AopContext.currentProxy();
+        Result ans = proxyVoucherOrderService.createVoucherOrder(voucherId);
+
+        simpleRedisLock.unLock();
+        return ans;
     }
 
     // 避免库存扣减，但订单创建失败等情况
@@ -61,14 +75,8 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
         if (seckillVoucher.getStock() < 1) {
             return Result.fail("库存不足");
         }
-        long userSeckillCount = query()
-                .eq("user_id", userId)
-                .eq("voucher_id", voucherId)
-                .count();
-        if (userSeckillCount > 0) {
-            return Result.fail("用户已经购买过");
-        }
-        // 3.扣减库存
+
+        // 4.扣减库存
         boolean result = seckillVoucherService.update()
                 .setSql("stock = stock - 1")
                 .eq("voucher_id", voucherId)
@@ -77,7 +85,7 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
         if (!result) {
             return Result.fail("库存不足");
         }
-        // 4.创建订单
+        // 5.创建订单
         VoucherOrder voucherOrder = new VoucherOrder();
         voucherOrder.setUserId(userId);
         voucherOrder.setVoucherId(voucherId);
