@@ -23,9 +23,6 @@ import java.time.LocalDateTime;
  * <p>
  *  服务实现类
  * </p>
- *
- * @author 虎哥
- * @since 2021-12-22
  */
 @Service
 public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, VoucherOrder> implements IVoucherOrderService {
@@ -50,13 +47,32 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
     public Result seckillVoucher(Long voucherId) {
         Long userId = UserHolder.getUser().getId();
 
-//        SimpleRedisLock simpleRedisLock = new SimpleRedisLock(stringRedisTemplate);
-        RLock simpleRedisLock = redissonClient.getLock("lock:order:" + userId);
+        // 修改库存可用乐观锁，但插入订单数据则需要悲观锁，这里对每个userId加锁，避免一个用户同时发起两个请求时，违反一人一卖的原则
+        // intern()表示从常量池中拿到数据，userId.toString()其实是每次都new String对象，无法真正锁住（synchronized使用）
 
+        // 1.查询优惠券
+        SeckillVoucher seckillVoucher = seckillVoucherService.getById(voucherId);
+        // 2.判断秒杀是否开始/结束
+        if (seckillVoucher.getBeginTime().isAfter(LocalDateTime.now())) {
+            return Result.fail("秒杀尚未开始");
+        }
+        if (seckillVoucher.getEndTime().isBefore(LocalDateTime.now())) {
+            return Result.fail("秒杀已经结束");
+        }
+        if (seckillVoucher.getStock() < 1) {
+            return Result.fail("库存不足");
+        }
+
+        // 加锁，为创建订单做准备。同时避免创建重复订单
+        //        SimpleRedisLock simpleRedisLock = new SimpleRedisLock(stringRedisTemplate);
+        RLock simpleRedisLock = redissonClient.getLock("lock:order:" + userId);
         boolean isLock = simpleRedisLock.tryLock();
+        // 同时有多个线程竞争同一个用户的锁，说明一个用户同时发出了多个请求
         if (!isLock) {
             return Result.fail("请勿重复下单");
         }
+
+        // 3.创建订单方法调用
         try {
             // 在类内部调用事务方法时会因无法绕过this而无法代理，所以需要主动获取代理对象
             VoucherOrderServiceImpl proxyVoucherOrderService = (VoucherOrderServiceImpl) AopContext.currentProxy();
@@ -72,21 +88,6 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
     @Transactional
     public Result createVoucherOrder(Long voucherId) {
         Long userId = UserHolder.getUser().getId();
-
-        // 修改库存可用乐观锁，但插入订单数据则需要悲观锁，这里对每个userId加锁，避免一个用户同时发起两个请求时，违反一人一卖的原则
-        // intern()表示从常量池中拿到数据，userId.toString()其实是每次都new String对象，无法真正锁住
-        // 1.查询优惠券
-        SeckillVoucher seckillVoucher = seckillVoucherService.getById(voucherId);
-        // 2.判断秒杀是否开始/结束
-        if (seckillVoucher.getBeginTime().isAfter(LocalDateTime.now())) {
-            return Result.fail("秒杀尚未开始");
-        }
-        if (seckillVoucher.getEndTime().isBefore(LocalDateTime.now())) {
-            return Result.fail("秒杀已经结束");
-        }
-        if (seckillVoucher.getStock() < 1) {
-            return Result.fail("库存不足");
-        }
 
         // 4.扣减库存
         boolean result = seckillVoucherService.update()
