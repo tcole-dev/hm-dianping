@@ -10,6 +10,8 @@ import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.hmdp.utils.GlobalUniqueIdUtil;
 import com.hmdp.utils.SimpleRedisLock;
 import com.hmdp.utils.UserHolder;
+import org.redisson.api.RLock;
+import org.redisson.api.RedissonClient;
 import org.springframework.aop.framework.AopContext;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
@@ -29,11 +31,14 @@ import java.time.LocalDateTime;
 public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, VoucherOrder> implements IVoucherOrderService {
     private final ISeckillVoucherService seckillVoucherService;
     private final GlobalUniqueIdUtil globalUniqueIdUtil;
-    private final StringRedisTemplate stringRedisTemplate;
-    public VoucherOrderServiceImpl(StringRedisTemplate stringRedisTemplate, ISeckillVoucherService seckillVoucherService, GlobalUniqueIdUtil globalUniqueIdUtil) {
+//    private final StringRedisTemplate stringRedisTemplate;
+    private RedissonClient redissonClient;
+
+    public VoucherOrderServiceImpl(StringRedisTemplate stringRedisTemplate, ISeckillVoucherService seckillVoucherService, GlobalUniqueIdUtil globalUniqueIdUtil, RedissonClient redissonClient) {
         this.seckillVoucherService = seckillVoucherService;
-        this.stringRedisTemplate = stringRedisTemplate;
+//        this.stringRedisTemplate = stringRedisTemplate;
         this.globalUniqueIdUtil = globalUniqueIdUtil;
+        this.redissonClient = redissonClient;
     }
 
     /**
@@ -44,16 +49,23 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
     @Override
     public Result seckillVoucher(Long voucherId) {
         Long userId = UserHolder.getUser().getId();
-        SimpleRedisLock simpleRedisLock = new SimpleRedisLock(stringRedisTemplate);
 
-        simpleRedisLock.tryLock(60L);
+//        SimpleRedisLock simpleRedisLock = new SimpleRedisLock(stringRedisTemplate);
+        RLock simpleRedisLock = redissonClient.getLock("lock:order:" + userId);
 
-        // 在类内部调用事务方法时会因无法绕过this而无法代理，所以需要主动获取代理对象
-        VoucherOrderServiceImpl proxyVoucherOrderService = (VoucherOrderServiceImpl) AopContext.currentProxy();
-        Result ans = proxyVoucherOrderService.createVoucherOrder(voucherId);
+        boolean isLock = simpleRedisLock.tryLock();
+        if (!isLock) {
+            return Result.fail("请勿重复下单");
+        }
+        try {
+            // 在类内部调用事务方法时会因无法绕过this而无法代理，所以需要主动获取代理对象
+            VoucherOrderServiceImpl proxyVoucherOrderService = (VoucherOrderServiceImpl) AopContext.currentProxy();
+            Result ans = proxyVoucherOrderService.createVoucherOrder(voucherId);
+            return ans;
+        } finally {
+            simpleRedisLock.unlock();
+        }
 
-        simpleRedisLock.unLock();
-        return ans;
     }
 
     // 避免库存扣减，但订单创建失败等情况
