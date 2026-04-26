@@ -29,3 +29,8 @@ hmdp:
     secret: hmdp
     ttl: 86400000
     tokenName: token
+minio:
+  endpoint: http://localhost:9000
+  accessKey: 30sVinGooXDNKU0R9vwI
+  secretKey: LoDSRBQKm9s0b0XGoBTKST0ThoXnDJ5ZgXebIiVe
+  bucketName: hmdp
