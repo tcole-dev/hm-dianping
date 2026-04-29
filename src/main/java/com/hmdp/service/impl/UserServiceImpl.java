@@ -14,16 +14,21 @@ import com.hmdp.mapper.UserMapper;
 import com.hmdp.service.IUserService;
 import com.hmdp.utils.RedisConstants;
 import com.hmdp.utils.RegexUtils;
+import com.hmdp.utils.UserHolder;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.redis.connection.BitFieldSubCommands;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpSession;
 
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -102,5 +107,54 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
         String key = RedisConstants.LOGIN_USER_KEY + token;
         stringRedisTemplate.delete(key);
         return Result.ok();
+    }
+
+    @Override
+    public Result sign() {
+        Long userId = UserHolder.getUser().getId();
+        LocalDateTime now = LocalDateTime.now();
+        String date = now.format(DateTimeFormatter.ofPattern(":yyyyMM"));
+        // Redis中bitmap的key
+        String key = RedisConstants.USER_SIGN_KEY + userId + date;
+        // 本月的第几天
+        int day = now.getDayOfMonth();
+        stringRedisTemplate.opsForValue().setBit(key, day - 1, true);
+        return Result.ok();
+    }
+
+    public Result signCount() {
+        Long userId = UserHolder.getUser().getId();
+        LocalDateTime now = LocalDateTime.now();
+        String date = now.format(DateTimeFormatter.ofPattern(":yyyyMM"));
+        // Redis中bitmap的key
+        String key = RedisConstants.USER_SIGN_KEY + userId + date;
+        // 本月的第几天
+        int day = now.getDayOfMonth();
+        // 获取本月的签到数据
+        List<Long> result = stringRedisTemplate.opsForValue().bitField(
+                key,
+                BitFieldSubCommands.create()
+                        .get(BitFieldSubCommands.BitFieldType.unsigned(day)).valueAt(0)
+                //      .get(u5).valueAt(0)
+                //      .get(u6).valueAt(0)     .create()可同时操作多段，所以返回值为List
+        );
+        // 返回的是bit串转化成的十进制，如bitmap中是：00101，即返回 101对应的十进制数5
+        if (result == null || result.isEmpty()) {
+            return Result.ok(0);
+        }
+
+        Long signCount = result.get(0);
+        if (signCount == null || signCount == 0) {
+            return Result.ok(0);
+        }
+
+        int ans = 0;
+        // 若该十进制数与1相与得1，说明最低位为1，否则为0，由此判断该天是否签到。
+        // 循环右移，判断每一天是否签到
+        while ((signCount & 1) == 1) {
+            ans++;
+            signCount >>= 1;
+        }
+        return Result.ok(ans);
     }
 }
