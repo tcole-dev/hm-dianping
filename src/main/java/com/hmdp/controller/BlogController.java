@@ -42,7 +42,7 @@ public class BlogController {
         UserDTO user = UserHolder.getUser();
         blog.setUserId(user.getId());
         // 保存探店博文
-        blogService.save(blog);
+        blogService.saveBlog(blog);
         // 返回id
         return Result.ok(blog.getId());
     }
