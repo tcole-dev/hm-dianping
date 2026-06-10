@@ -7,7 +7,7 @@ spring:
     driver-class-name: com.mysql.jdbc.Driver
     url: jdbc:mysql://127.0.0.1:3306/hmdp?useSSL=false&serverTimezone=UTC&serverTimezone=UTC&allowPublicKeyRetrieval=true
     username: root
-    password: tc2389231473
+    password: ${DB_PASSWORD:123456}
   redis:
     host: localhost
     port: 6379
@@ -31,6 +31,6 @@ hmdp:
     tokenName: token
 minio:
   endpoint: http://localhost:9000
-  accessKey: 30sVinGooXDNKU0R9vwI
-  secretKey: LoDSRBQKm9s0b0XGoBTKST0ThoXnDJ5ZgXebIiVe
+  accessKey: ${MINIO_ACCESS_KEY:minioadmin}
+  secretKey: ${MINIO_SECRET_KEY:minioadmin}
   bucketName: hmdp
