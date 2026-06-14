@@ -2,12 +2,14 @@ package com.hmdp.utils;
 
 import cn.hutool.core.util.RandomUtil;
 import cn.hutool.json.JSONUtil;
+import org.springframework.core.io.ClassPathResource;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDateTime;
+import java.util.Collections;
 import java.util.Map;
-import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.*;
 import java.util.function.Function;
@@ -21,6 +23,14 @@ import java.util.function.Function;
 public class CacheUtil {
     private final StringRedisTemplate stringRedisTemplate;
     private ThreadPoolExecutor executor;
+
+    private static final DefaultRedisScript<Long> UNLOCK_SCRIPT;
+
+    static {
+        UNLOCK_SCRIPT = new DefaultRedisScript<>();
+        UNLOCK_SCRIPT.setLocation(new ClassPathResource("cache_unlock.lua"));
+        UNLOCK_SCRIPT.setResultType(Long.class);
+    }
 
     public CacheUtil(StringRedisTemplate stringRedisTemplate) {
         this.stringRedisTemplate = stringRedisTemplate;
@@ -197,9 +207,11 @@ public class CacheUtil {
     private boolean tryLock(String key, String  value) {
         return Boolean.TRUE.equals(stringRedisTemplate.opsForValue().setIfAbsent(key, value, 200, TimeUnit.SECONDS));
     }
+
+    /**
+     * 使用 Lua 脚本原子解锁，避免 GET + DELETE 之间的竞态条件
+     */
     private void unlock(String key, String value) {
-        if (Objects.equals(stringRedisTemplate.opsForValue().get(key), value)) {
-            stringRedisTemplate.delete(key);
-        }
+        stringRedisTemplate.execute(UNLOCK_SCRIPT, Collections.singletonList(key), value);
     }
 }
