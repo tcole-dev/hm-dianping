@@ -15,7 +15,6 @@ import org.springframework.web.bind.annotation.*;
 
 import javax.annotation.Resource;
 import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpSession;
 import javax.validation.Valid;
 
 /**
@@ -41,10 +40,8 @@ public class UserController {
      * 发送手机验证码
      */
     @PostMapping("code")
-    public Result sendCode(@RequestParam("phone") String phone, HttpSession session) {
-        // TODO 发送短信验证码并保存验证码
-//        return Result.fail("功能未完成");
-        return userService.sendCode(phone, session);
+    public Result sendCode(@RequestParam("phone") String phone) {
+        return userService.sendCode(phone);
     }
 
     /**
@@ -52,10 +49,8 @@ public class UserController {
      * @param loginForm 登录参数，包含手机号、验证码；或者手机号、密码
      */
     @PostMapping("/login")
-    public Result login(@Valid @RequestBody LoginFormDTO loginForm, HttpSession session){
-        // TODO 实现登录功能
-//        return Result.fail("功能未完成");
-        return userService.login(loginForm, session);
+    public Result login(@Valid @RequestBody LoginFormDTO loginForm){
+        return userService.login(loginForm);
     }
 
     /**

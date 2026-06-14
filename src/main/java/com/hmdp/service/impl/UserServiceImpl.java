@@ -23,7 +23,6 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
 import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpSession;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -31,6 +30,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 
 import static com.hmdp.utils.SystemConstants.USER_NICK_NAME_PREFIX;
 
@@ -49,29 +49,33 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
     private StringRedisTemplate stringRedisTemplate;
 
 
-    public Result sendCode(String phone, HttpSession session) {
+    public Result sendCode(String phone) {
         if (RegexUtils.isPhoneInvalid(phone)) {
             return Result.fail("手机号格式错误");
         }
 
         String code = RandomUtil.randomNumbers(6);
 
-        session.setAttribute("code", code);
+        // 验证码存 Redis，5 分钟过期（替代 HttpSession，支持多实例部署）
+        stringRedisTemplate.opsForValue().set(RedisConstants.LOGIN_CODE_KEY + phone, code, 5, TimeUnit.MINUTES);
 
         log.debug("发送短信验证码成功，验证码：{}", code);
         return Result.ok("发送成功");
     }
 
     @Override
-    public Result login(LoginFormDTO loginForm, HttpSession session) {
+    public Result login(LoginFormDTO loginForm) {
         String phone = loginForm.getPhone();
         if (RegexUtils.isPhoneInvalid(phone)) {
             return Result.fail("手机号格式错误");
         }
-        String sessionCode = (String) session.getAttribute("code");
-        if (sessionCode == null || !sessionCode.equals(loginForm.getCode())) {
+        // 从 Redis 读取验证码（替代 HttpSession）
+        String redisCode = stringRedisTemplate.opsForValue().get(RedisConstants.LOGIN_CODE_KEY + phone);
+        if (redisCode == null || !redisCode.equals(loginForm.getCode())) {
             return Result.fail("验证码错误");
         }
+        // 验证通过后删除验证码
+        stringRedisTemplate.delete(RedisConstants.LOGIN_CODE_KEY + phone);
 
         User user = query().eq("phone", phone).one();
 

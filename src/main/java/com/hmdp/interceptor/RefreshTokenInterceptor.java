@@ -39,4 +39,12 @@ public class RefreshTokenInterceptor implements HandlerInterceptor {
         stringRedisTemplate.expire(key, RedisConstants.LOGIN_USER_TTL, TimeUnit.MINUTES);
         return true;
     }
+
+    /**
+     * 请求结束后清理 ThreadLocal，防止线程复用时身份泄漏
+     */
+    @Override
+    public void afterCompletion(HttpServletRequest request, HttpServletResponse response, Object handler, Exception ex) {
+        UserHolder.removeUser();
+    }
 }
