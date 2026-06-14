@@ -3,14 +3,16 @@ server:
 spring:
   application:
     name: hmdp
+  profiles:
+    active: ${SPRING_PROFILE:dev} # 默认 dev 环境，生产通过环境变量切换 prod
   datasource:
     driver-class-name: com.mysql.jdbc.Driver
-    url: jdbc:mysql://127.0.0.1:3306/hmdp?useSSL=false&serverTimezone=UTC&serverTimezone=UTC&allowPublicKeyRetrieval=true
+    url: jdbc:mysql://127.0.0.1:3306/hmdp?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true
     username: root
     password: ${DB_PASSWORD:123456}
   redis:
-    host: localhost
-    port: 6379
+    host: ${REDIS_HOST:localhost}
+    port: ${REDIS_PORT:6379}
     lettuce:
       pool:
         max-active: 10
@@ -26,15 +28,14 @@ spring:
 mybatis-plus:
   type-aliases-package: com.hmdp.entity # 别名扫描包
 logging:
-  level:
-    com.hmdp: debug
+  config: classpath:logback-spring.xml # 日志配置由 logback 管理
 hmdp:
   jwt:
-    secret: hmdp
+    secret: ${JWT_SECRET:hmdp-secret-key-change-in-production}
     ttl: 86400000
     tokenName: token
 minio:
-  endpoint: http://localhost:9000
+  endpoint: ${MINIO_ENDPOINT:http://localhost:9000}
   accessKey: ${MINIO_ACCESS_KEY:minioadmin}
   secretKey: ${MINIO_SECRET_KEY:minioadmin}
-  bucketName: hmdp
+  bucketName: ${MINIO_BUCKET:hmdp}

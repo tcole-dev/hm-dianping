@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+
+    <!-- 引入 Spring 默认配置 -->
+    <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
+
+    <!-- ============ 通用变量 ============ -->
+    <property name="LOG_PATH" value="./logs"/>
+    <property name="APP_NAME" value="hmdp"/>
+    <!-- 统一日志格式：时间 | 级别 | 线程 | 类名 | 消息 -->
+    <property name="LOG_PATTERN" value="%d{yyyy-MM-dd HH:mm:ss.SSS} [%level] [%thread] %logger{50} - %msg%n"/>
+
+    <!-- ============ 控制台输出（彩色） ============ -->
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>${CONSOLE_LOG_PATTERN}</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+    </appender>
+
+    <!-- ============ 应用日志文件（按天轮转 + 大小限制） ============ -->
+    <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_PATH}/${APP_NAME}.log</file>
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <!-- 按天归档，单文件超 100MB 也归档 -->
+            <fileNamePattern>${LOG_PATH}/${APP_NAME}.%d{yyyy-MM-dd}.%i.log.gz</fileNamePattern>
+            <maxFileSize>100MB</maxFileSize>
+            <maxHistory>30</maxHistory>
+            <totalSizeCap>2GB</totalSizeCap>
+        </rollingPolicy>
+        <encoder>
+            <pattern>${LOG_PATTERN}</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+    </appender>
+
+    <!-- ============ 秒杀/订单业务专用日志 ============ -->
+    <appender name="SECKILL_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_PATH}/${APP_NAME}-seckill.log</file>
+        <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
+            <level>INFO</level>
+        </filter>
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_PATH}/${APP_NAME}-seckill.%d{yyyy-MM-dd}.%i.log.gz</fileNamePattern>
+            <maxFileSize>50MB</maxFileSize>
+            <maxHistory>30</maxHistory>
+            <totalSizeCap>1GB</totalSizeCap>
+        </rollingPolicy>
+        <encoder>
+            <pattern>${LOG_PATTERN}</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+    </appender>
+
+    <!-- ============ ERROR 级别独立日志 ============ -->
+    <appender name="ERROR_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_PATH}/${APP_NAME}-error.log</file>
+        <filter class="ch.qos.logback.classic.filter.LevelFilter">
+            <level>ERROR</level>
+            <onMatch>ACCEPT</onMatch>
+            <onMismatch>DENY</onMismatch>
+        </filter>
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_PATH}/${APP_NAME}-error.%d{yyyy-MM-dd}.%i.log.gz</fileNamePattern>
+            <maxFileSize>50MB</maxFileSize>
+            <maxHistory>30</maxHistory>
+            <totalSizeCap>1GB</totalSizeCap>
+        </rollingPolicy>
+        <encoder>
+            <pattern>${LOG_PATTERN}</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+    </appender>
+
+    <!-- ============ 秒杀业务 Logger ============ -->
+    <logger name="com.hmdp.service.impl.VoucherOrderServiceImpl" level="INFO" additivity="false">
+        <appender-ref ref="SECKILL_FILE"/>
+        <appender-ref ref="CONSOLE"/>
+    </logger>
+
+    <!-- ============ 开发环境：控制台为主 ============ -->
+    <springProfile name="dev">
+        <root level="INFO">
+            <appender-ref ref="CONSOLE"/>
+        </root>
+        <logger name="com.hmdp" level="DEBUG"/>
+    </springProfile>
+
+    <!-- ============ 生产环境：文件为主 + ERROR 独立 ============ -->
+    <springProfile name="prod">
+        <root level="INFO">
+            <appender-ref ref="FILE"/>
+            <appender-ref ref="ERROR_FILE"/>
+        </root>
+        <logger name="com.hmdp" level="INFO"/>
+    </springProfile>
+
+    <!-- ============ 默认（无 profile 激活时） ============ -->
+    <springProfile name="default">
+        <root level="INFO">
+            <appender-ref ref="CONSOLE"/>
+            <appender-ref ref="FILE"/>
+        </root>
+        <logger name="com.hmdp" level="DEBUG"/>
+    </springProfile>
+
+</configuration>
