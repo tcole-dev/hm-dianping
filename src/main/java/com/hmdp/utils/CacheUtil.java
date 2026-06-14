@@ -141,18 +141,13 @@ public class CacheUtil {
         }
         // 缓存已过期，缓存重建
         String redoKey = redisPrefix + ":redoLock:" + id;
-        String lockValue = UUID.randomUUID().toString();
-        /**
-        // 获取锁失败，则返回旧数据
-        if (!tryLock(redoKey, lockValue)) {
-            String value = JSONUtil.toJsonStr(redisData.getData());
+        // 前置检查：如果锁已存在，说明其他实例/线程正在重建，跳过提交避免无谓争抢
+        String existingLock = stringRedisTemplate.opsForValue().get(redoKey);
+        if (existingLock != null) {
+            // 已有线程在重建，直接返回旧数据
             return JSONUtil.toBean(value, clazz);
         }
-        T t = dbQuery.apply(id);
-        this.setWithLogicExpire(key, t, time, unit);
-        unlock(redoKey, lockValue);
-        return t;
-         */
+        String lockValue = UUID.randomUUID().toString();
         executor.submit(() -> reBuildCacheTask(redoKey, lockValue, key, id, dbQuery, time, unit));
         return JSONUtil.toBean(value, clazz);
     }

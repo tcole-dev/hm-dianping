@@ -20,6 +20,8 @@ import org.springframework.stereotype.Service;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -34,6 +36,9 @@ import java.util.concurrent.TimeUnit;
 public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IShopService {
     private StringRedisTemplate stringRedisTemplate;
     private CacheUtil cacheUtil;
+
+    // 延迟双删的异步调度线程池（单线程即可，仅用于定时删缓存）
+    private static final ScheduledExecutorService SCHEDULER = Executors.newSingleThreadScheduledExecutor();
 
     public ShopServiceImpl(StringRedisTemplate stringRedisTemplate, CacheUtil cacheUtil) {
         this.stringRedisTemplate = stringRedisTemplate;
@@ -74,14 +79,10 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
         // 先修改数据库
         updateById(shop);
         // 后删除缓存（数据库、缓存一致性）
-        stringRedisTemplate.delete(RedisConstants.CACHE_SHOP_KEY + shop.getId());
-        try {
-            Thread.sleep(200);
-        } catch (InterruptedException e) {
-            log.debug(e.getMessage());
-        }
-        // 缓存双删
-        stringRedisTemplate.delete(RedisConstants.CACHE_SHOP_KEY + shop.getId());
+        String cacheKey = RedisConstants.CACHE_SHOP_KEY + shop.getId();
+        stringRedisTemplate.delete(cacheKey);
+        // 异步延迟双删：500ms 后再删一次，避免阻塞请求线程
+        SCHEDULER.schedule(() -> stringRedisTemplate.delete(cacheKey), 500, TimeUnit.MILLISECONDS);
         return Result.ok();
     }
 
