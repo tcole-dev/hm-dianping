@@ -49,6 +49,11 @@ public class FollowServiceImpl extends ServiceImpl<FollowMapper, Follow> impleme
         Long userId = UserHolder.getUser().getId();
         String key = "follow:" + userId;
         if (isFollow) {
+            // 关注前先检查是否已关注（Redis O(1) 判断，避免重复插入）
+            Boolean isMember = stringRedisTemplate.opsForSet().isMember(key, followId.toString());
+            if (Boolean.TRUE.equals(isMember)) {
+                return Result.ok();
+            }
             Follow follow = new Follow();
             follow.setUserId(userId);
             follow.setFollowUserId(followId);
@@ -59,6 +64,11 @@ public class FollowServiceImpl extends ServiceImpl<FollowMapper, Follow> impleme
                 return Result.fail("关注失败");
             }
         } else {
+            // 取关前先检查是否已关注
+            Boolean isMember = stringRedisTemplate.opsForSet().isMember(key, followId.toString());
+            if (!Boolean.TRUE.equals(isMember)) {
+                return Result.ok();
+            }
             // 数据库移除关注
             followMapper.removeFollow(userId, followId);
             // Redis移除关注

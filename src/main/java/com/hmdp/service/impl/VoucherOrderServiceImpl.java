@@ -89,7 +89,16 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
     public Result createVoucherOrder(Long voucherId) {
         Long userId = UserHolder.getUser().getId();
 
-        // 4.扣减库存
+        // 4. 一人一单校验：查询该用户是否已购买过此券
+        Long count = query()
+                .eq("user_id", userId)
+                .eq("voucher_id", voucherId)
+                .count();
+        if (count > 0) {
+            return Result.fail("您已购买过该优惠券，不可重复购买");
+        }
+
+        // 5.扣减库存
         boolean result = seckillVoucherService.update()
                 .setSql("stock = stock - 1")
                 .eq("voucher_id", voucherId)
@@ -98,7 +107,7 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
         if (!result) {
             return Result.fail("库存不足");
         }
-        // 5.创建订单
+        // 6.创建订单
         VoucherOrder voucherOrder = new VoucherOrder();
         voucherOrder.setUserId(userId);
         voucherOrder.setVoucherId(voucherId);
