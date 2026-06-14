@@ -1,6 +1,5 @@
 package com.hmdp.service.impl;
 
-import cn.hutool.core.util.StrUtil;
 import com.hmdp.dto.Result;
 import com.hmdp.dto.ScrollResult;
 import com.hmdp.entity.Blog;
@@ -20,6 +19,7 @@ import org.springframework.data.redis.core.ZSetOperations;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
@@ -106,10 +106,18 @@ public class BlogServiceImpl extends ServiceImpl<BlogMapper, Blog> implements IB
         // 若minTime == max，则说明本次查询的blog中，其实是在查询上次剩下的那个时间戳的数据，需要将offset加上cnt
         cnt = minTime == max ? offset + cnt : cnt;
 
-        String idStr = StrUtil.join(",", Ids);
-        List<Blog> blogList = query().in("id", Ids)
-                .last("ORDER BY FIELD(id," + idStr + ")")
-                .list();
+        // 查询 Blog 数据（不拼接 SQL，避免注入风险）
+        List<Blog> blogList = query().in("id", Ids).list();
+        // Java 层按 ZSet 时间戳顺序排列
+        var orderMap = new HashMap<Long, Integer>();
+        for (int i = 0; i < Ids.size(); i++) {
+            orderMap.put(Ids.get(i), i);
+        }
+        blogList.sort((a, b) -> {
+            int ia = orderMap.getOrDefault(a.getId(), Integer.MAX_VALUE);
+            int ib = orderMap.getOrDefault(b.getId(), Integer.MAX_VALUE);
+            return Integer.compare(ia, ib);
+        });
 
         for (Blog blog : blogList) {
             completeBlog(blog);

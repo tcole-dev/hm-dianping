@@ -16,6 +16,7 @@ import org.springframework.web.bind.annotation.*;
 import javax.annotation.Resource;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpSession;
+import javax.validation.Valid;
 
 /**
  * <p>
@@ -51,7 +52,7 @@ public class UserController {
      * @param loginForm 登录参数，包含手机号、验证码；或者手机号、密码
      */
     @PostMapping("/login")
-    public Result login(@RequestBody LoginFormDTO loginForm, HttpSession session){
+    public Result login(@Valid @RequestBody LoginFormDTO loginForm, HttpSession session){
         // TODO 实现登录功能
 //        return Result.fail("功能未完成");
         return userService.login(loginForm, session);

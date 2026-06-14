@@ -6,6 +6,7 @@ import com.hmdp.service.IBlogCommentsService;
 import org.springframework.web.bind.annotation.*;
 
 import javax.annotation.Resource;
+import javax.validation.Valid;
 
 @RestController
 @RequestMapping("/blog-comments")
@@ -34,7 +35,7 @@ public class BlogCommentsController {
      * @return 结果
      */
     @PostMapping
-    public Result saveComment(@RequestBody BlogComments comment) {
+    public Result saveComment(@Valid @RequestBody BlogComments comment) {
         return blogCommentsService.saveComment(comment);
     }
 }

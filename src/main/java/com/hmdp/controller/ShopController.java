@@ -9,6 +9,7 @@ import com.hmdp.utils.SystemConstants;
 import org.springframework.web.bind.annotation.*;
 
 import javax.annotation.Resource;
+import javax.validation.Valid;
 
 @RestController
 @RequestMapping("/shop")
@@ -33,7 +34,7 @@ public class ShopController {
      * @return 商铺id
      */
     @PostMapping
-    public Result saveShop(@RequestBody Shop shop) {
+    public Result saveShop(@Valid @RequestBody Shop shop) {
         // 写入数据库
         shopService.save(shop);
         // 返回店铺id
@@ -46,7 +47,7 @@ public class ShopController {
      * @return 无
      */
     @PutMapping
-    public Result updateShop(@RequestBody Shop shop) {
+    public Result updateShop(@Valid @RequestBody Shop shop) {
         // 写入数据库
         shopService.update(shop);
         return Result.ok();

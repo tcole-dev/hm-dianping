@@ -15,6 +15,7 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.web.bind.annotation.*;
 
 import javax.annotation.Resource;
+import javax.validation.Valid;
 import java.util.List;
 
 /**
@@ -37,7 +38,7 @@ public class BlogController {
     private StringRedisTemplate stringRedisTemplate;
 
     @PostMapping
-    public Result saveBlog(@RequestBody Blog blog) {
+    public Result saveBlog(@Valid @RequestBody Blog blog) {
         // 获取登录用户
         UserDTO user = UserHolder.getUser();
         blog.setUserId(user.getId());

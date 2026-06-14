@@ -1,6 +1,5 @@
 package com.hmdp.service.impl;
 
-import cn.hutool.core.util.StrUtil;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.hmdp.dto.Result;
 import com.hmdp.entity.Shop;
@@ -131,9 +130,18 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
             Distance distance = result.getDistance();
             distanceMap.put(shopIdStr, distance);
         });
-        // 查询Shop数据
-        String idStr = StrUtil.join(",", ids);
-        List<Shop> shops = query().in("id", ids).last("ORDER BY FIELD(id," + idStr + ")").list();
+        // 查询Shop数据（不拼接 SQL，避免注入风险）
+        List<Shop> shops = query().in("id", ids).list();
+        // Java 层按 Redis GEO 距离排序的顺序排列
+        var orderMap = new HashMap<Long, Integer>();
+        for (int i = 0; i < ids.size(); i++) {
+            orderMap.put(ids.get(i), i);
+        }
+        shops.sort((a, b) -> {
+            int ia = orderMap.getOrDefault(a.getId(), Integer.MAX_VALUE);
+            int ib = orderMap.getOrDefault(b.getId(), Integer.MAX_VALUE);
+            return Integer.compare(ia, ib);
+        });
         for (Shop shop : shops) {
             shop.setDistance(distanceMap.get(shop.getId().toString()).getValue());
         }
