@@ -3,6 +3,8 @@ package com.hmdp.service.impl;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.hmdp.dto.Result;
 import com.hmdp.entity.Shop;
+import com.hmdp.exception.BusinessException;
+import com.hmdp.exception.ErrorCode;
 import com.hmdp.mapper.ShopMapper;
 import com.hmdp.service.IShopService;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
@@ -45,45 +47,29 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
         this.cacheUtil = cacheUtil;
     }
 
-    // 重写查询方法，增加缓存逻辑
     @Override
-    public Result queryById(Long id) {
-        /*
-        String key = RedisConstants.CACHE_SHOP_KEY + id;
-        // redis 缓存查询
-        String value = stringRedisTemplate.opsForValue().get(key);
-         */
+    public Shop queryById(Long id) {
         Shop shop = cacheUtil.queryWithLogicExpire(RedisConstants.CACHE_SHOP_KEY, id, this::getById, Shop.class, 30L, TimeUnit.MINUTES);
         if (shop != null) {
-            // 存在，直接返回
-            return Result.ok(shop);
+            return shop;
         }
-        // 不存在，根据id查询数据库
         shop = getById(id);
         if (shop == null) {
-            // 店铺不存在，返回错误
-            return Result.fail("店铺不存在");
+            throw new BusinessException(ErrorCode.SHOP_NOT_FOUND);
         }
-        // 存在，写入redis
-//        stringRedisTemplate.opsForValue().set(key, JSONUtil.toJsonStr(shop), 30L, TimeUnit.MINUTES);
-        cacheUtil.setWithLogicExpire(RedisConstants.CACHE_SHOP_KEY +  id, shop, 30L, TimeUnit.MINUTES);
-        return Result.ok(shop);
+        cacheUtil.setWithLogicExpire(RedisConstants.CACHE_SHOP_KEY + id, shop, 30L, TimeUnit.MINUTES);
+        return shop;
     }
 
-    // 重写修改方法，增加缓存逻辑/数据库一致性
     @Override
-    public Result update(Shop shop) {
+    public void update(Shop shop) {
         if (shop.getId() == null) {
-            return Result.fail("店铺id不能为空");
+            throw new BusinessException(ErrorCode.SHOP_ID_EMPTY);
         }
-        // 先修改数据库
         updateById(shop);
-        // 后删除缓存（数据库、缓存一致性）
         String cacheKey = RedisConstants.CACHE_SHOP_KEY + shop.getId();
         stringRedisTemplate.delete(cacheKey);
-        // 异步延迟双删：500ms 后再删一次，避免阻塞请求线程
         SCHEDULER.schedule(() -> stringRedisTemplate.delete(cacheKey), 500, TimeUnit.MILLISECONDS);
-        return Result.ok();
     }
 
     @Override

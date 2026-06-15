@@ -30,9 +30,11 @@ public enum ErrorCode {
     USER_NOT_FOUND(20001, "用户不存在"),
     LOGIN_CODE_ERROR(20002, "验证码错误"),
     PHONE_INVALID(20003, "手机号格式错误"),
+    LOGIN_FAIL(20004, "登录失败"),
 
     // 商铺模块 30xxx
     SHOP_NOT_FOUND(30001, "店铺不存在"),
+    SHOP_ID_EMPTY(30002, "店铺id不能为空"),
 
     // 优惠券/秒杀模块 40xxx
     VOUCHER_NOT_FOUND(40001, "优惠券不存在"),
@@ -40,11 +42,16 @@ public enum ErrorCode {
     SECKILL_ENDED(40003, "秒杀已经结束"),
     STOCK_NOT_ENOUGH(40004, "库存不足"),
     DUPLICATE_ORDER(40005, "请勿重复下单"),
+    VOUCHER_ALREADY_PURCHASED(40006, "您已购买过该优惠券，不可重复购买"),
 
     // 博客/社交模块 50xxx
     BLOG_NOT_FOUND(50001, "博客不存在"),
     BLOG_SAVE_FAIL(50002, "保存博客失败"),
     FOLLOW_FAIL(50003, "关注失败"),
+
+    // 文件/上传模块 60xxx
+    UPLOAD_FAIL(60001, "上传文件失败"),
+    FILE_DELETE_FAIL(60002, "文件删除失败"),
     ;
 
     private final int code;

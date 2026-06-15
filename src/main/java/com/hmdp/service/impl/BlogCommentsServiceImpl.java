@@ -1,10 +1,11 @@
 package com.hmdp.service.impl;
 
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.hmdp.dto.Result;
 import com.hmdp.entity.Blog;
 import com.hmdp.entity.BlogComments;
+import com.hmdp.exception.BusinessException;
+import com.hmdp.exception.ErrorCode;
 import com.hmdp.mapper.BlogCommentsMapper;
 import com.hmdp.service.IBlogCommentsService;
 import com.hmdp.service.IBlogService;
@@ -35,25 +36,20 @@ public class BlogCommentsServiceImpl extends ServiceImpl<BlogCommentsMapper, Blo
 
     @Override
     @Transactional
-    public Result saveComment(BlogComments comment) {
-        // 校验博客是否存在
+    public void saveComment(BlogComments comment) {
         Blog blog = blogService.getById(comment.getBlogId());
         if (blog == null) {
-            return Result.fail("博客不存在");
+            throw new BusinessException(ErrorCode.BLOG_NOT_FOUND);
         }
-        // 设置评论信息
         comment.setUserId(UserHolder.getUser().getId());
         comment.setLiked(0);
         comment.setStatus(false);
         comment.setCreateTime(LocalDateTime.now());
         comment.setUpdateTime(LocalDateTime.now());
-        // 保存评论
         save(comment);
-        // 更新博客评论数 +1
         blogService.update()
                 .setSql("comments = comments + 1")
                 .eq("id", comment.getBlogId())
                 .update();
-        return Result.ok();
     }
 }

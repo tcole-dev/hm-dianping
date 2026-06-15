@@ -2,6 +2,7 @@ package com.hmdp.controller;
 
 import cn.hutool.core.util.StrUtil;
 import com.hmdp.dto.Result;
+import com.hmdp.exception.ErrorCode;
 import com.hmdp.utils.MinioUtil;
 import com.hmdp.utils.UserHolder;
 import lombok.extern.slf4j.Slf4j;
@@ -22,18 +23,14 @@ public class UploadController {
     @PostMapping("blog")
     public Result uploadImage(@RequestParam("file") MultipartFile image) {
         try {
-            // 获取原始文件名称
             String originalFilename = image.getOriginalFilename();
-            // 生成新文件名
             String suffix = StrUtil.subAfter(originalFilename, ".", true);
             String fileName = UUID.randomUUID().toString() + "_" + UserHolder.getUser().getId() + "." + suffix;
-
             String url = minioUtil.uploadFileWithName(image, fileName);
-
             return Result.ok(url);
         } catch (Exception e) {
             log.error("文件上传失败", e);
-            return Result.fail("上传文件失败");
+            return Result.fail(ErrorCode.UPLOAD_FAIL);
         }
     }
 
@@ -43,7 +40,7 @@ public class UploadController {
             minioUtil.deleteFile(filename);
         } catch (Exception e) {
             log.error("文件删除失败", e);
-            return Result.fail("文件删除失败");
+            return Result.fail(ErrorCode.FILE_DELETE_FAIL);
         }
         return Result.ok();
     }

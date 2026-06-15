@@ -5,8 +5,6 @@ import com.hmdp.entity.BlogComments;
 import com.baomidou.mybatisplus.extension.service.IService;
 
 public interface IBlogCommentsService extends IService<BlogComments> {
-
     Result queryCommentsByBlogId(Long blogId, Integer current);
-
-    Result saveComment(BlogComments comment);
+    void saveComment(BlogComments comment);
 }

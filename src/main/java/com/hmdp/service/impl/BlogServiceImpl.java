@@ -5,6 +5,8 @@ import com.hmdp.dto.ScrollResult;
 import com.hmdp.entity.Blog;
 import com.hmdp.entity.Follow;
 import com.hmdp.entity.User;
+import com.hmdp.exception.BusinessException;
+import com.hmdp.exception.ErrorCode;
 import com.hmdp.mapper.BlogMapper;
 import com.hmdp.service.IBlogService;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
@@ -50,26 +52,21 @@ public class BlogServiceImpl extends ServiceImpl<BlogMapper, Blog> implements IB
         this.stringRedisTemplate = stringRedisTemplate;
         this.iUserService = iUserService;
     }
-    // 重写save方法，在保存blog同时，将其推送到关注者的收件箱
     @Override
-    public Result saveBlog(Blog blog) {
+    public Long saveBlog(Blog blog) {
         if (!save(blog)) {
-            return Result.fail("保存失败");
+            throw new BusinessException(ErrorCode.BLOG_SAVE_FAIL);
         }
-
         largeDataThreadPool.execute(() -> {
-            // 1.查询当前blog的作者的所有粉丝
             List<Follow> follows = followService.query()
                     .eq("follow_id", blog.getUserId()).list();
-            // 2.把blog放入收件箱
             for (Follow follow : follows) {
                 Long followerId = follow.getUserId();
                 String key = RedisConstants.FEED_KEY + followerId;
                 stringRedisTemplate.opsForZSet().add(key, blog.getId().toString(), System.currentTimeMillis());
             }
         });
-
-        return Result.ok(blog.getId());
+        return blog.getId();
     }
 
     /**
