@@ -49,7 +49,7 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
 
     @Override
     public Shop queryById(Long id) {
-        Shop shop = cacheUtil.queryWithLogicExpire(RedisConstants.CACHE_SHOP_KEY, id, this::getById, Shop.class, 30L, TimeUnit.MINUTES);
+        Shop shop = cacheUtil.queryWithTwoLevel(RedisConstants.CACHE_SHOP_KEY, id, this::getById, Shop.class, 30L, TimeUnit.MINUTES);
         if (shop != null) {
             return shop;
         }
@@ -69,7 +69,11 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
         updateById(shop);
         String cacheKey = RedisConstants.CACHE_SHOP_KEY + shop.getId();
         stringRedisTemplate.delete(cacheKey);
-        SCHEDULER.schedule(() -> stringRedisTemplate.delete(cacheKey), 500, TimeUnit.MILLISECONDS);
+        cacheUtil.evictL1(cacheKey);
+        SCHEDULER.schedule(() -> {
+            stringRedisTemplate.delete(cacheKey);
+            cacheUtil.evictL1(cacheKey);
+        }, 500, TimeUnit.MILLISECONDS);
     }
 
     @Override

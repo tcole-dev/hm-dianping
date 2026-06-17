@@ -2,6 +2,9 @@ package com.hmdp.utils;
 
 import cn.hutool.core.util.RandomUtil;
 import cn.hutool.json.JSONUtil;
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
+import com.hmdp.config.CacheProperties;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
@@ -24,6 +27,11 @@ public class CacheUtil {
     private final StringRedisTemplate stringRedisTemplate;
     private ThreadPoolExecutor executor;
 
+    /** L1 本地缓存（Caffeine） */
+    private final Cache<String, Object> localCache;
+    /** 空值哨兵，避免 Caffeine 不允许 null 值 */
+    private static final Object NULL_SENTINEL = new Object();
+
     private static final DefaultRedisScript<Long> UNLOCK_SCRIPT;
 
     static {
@@ -32,8 +40,12 @@ public class CacheUtil {
         UNLOCK_SCRIPT.setResultType(Long.class);
     }
 
-    public CacheUtil(StringRedisTemplate stringRedisTemplate) {
+    public CacheUtil(StringRedisTemplate stringRedisTemplate, CacheProperties cacheProperties) {
         this.stringRedisTemplate = stringRedisTemplate;
+        this.localCache = Caffeine.newBuilder()
+                .maximumSize(cacheProperties.getMaxSize())
+                .expireAfterWrite(cacheProperties.getTtl(), TimeUnit.SECONDS)
+                .build();
         // 用于击穿时的重建缓存
         executor = new ThreadPoolExecutor(
                 5,                      // corePoolSize
@@ -59,16 +71,18 @@ public class CacheUtil {
     }
 
     /**
-     * 带有逻辑过期的缓存
-     * @param key 缓存的key
-     * @param value 缓存的value
-     * @param time 缓存时间（用于逻辑过期，redis的key本身不过期）
-     * @param unit 时间单位
+     * 带有逻辑过期的缓存（同步更新 L1）
      */
     public void setWithLogicExpire(String key, Object value, Long time, TimeUnit unit) {
-        long seconds = unit.toSeconds(time);
+        long seconds = unit.toSeconds(time);    // 逻辑过期时间
         RedisData redisData = new RedisData(LocalDateTime.now().plusSeconds(seconds), value);
         stringRedisTemplate.opsForValue().set(key, JSONUtil.toJsonStr(redisData), seconds * 2, TimeUnit.SECONDS);
+        localCache.put(key, value);
+    }
+
+    /** 驱逐 L1 缓存 */
+    public void evictL1(String key) {
+        localCache.invalidate(key);
     }
 
     // 带有随机TTL的缓存
@@ -150,6 +164,53 @@ public class CacheUtil {
         String lockValue = UUID.randomUUID().toString();
         executor.submit(() -> reBuildCacheTask(redoKey, lockValue, key, id, dbQuery, time, unit));
         return JSONUtil.toBean(value, clazz);
+    }
+
+    /**
+     * 二级缓存查询（L1 Caffeine + L2 Redis 逻辑过期）
+     * 命中 L1 直接返回 → 查 L2 并回填 L1 → 都未命中查 DB 并回填 L2+L1
+     */
+    @SuppressWarnings("unchecked")
+    public <ID, T> T queryWithTwoLevel(String redisPrefix, ID id, Function<ID, T> dbQuery, Class<T> clazz, Long time, TimeUnit unit) {
+        String key = redisPrefix + id;
+        // 1. 查 L1
+        Object l1Value = localCache.getIfPresent(key);
+        if (l1Value == NULL_SENTINEL) {
+            return null;
+        }
+        if (l1Value != null) {
+            return (T) l1Value;
+        }
+        // 2. 查 L2（Redis 逻辑过期）
+        String json = stringRedisTemplate.opsForValue().get(key);
+        if (json != null && !json.isEmpty()) {
+            RedisData redisData = JSONUtil.toBean(json, RedisData.class);
+            String value = JSONUtil.toJsonStr(redisData.getData());
+            if (redisData.getExpireTime().isAfter(LocalDateTime.now())) {
+                T result = JSONUtil.toBean(value, clazz);
+                localCache.put(key, result);
+                return result;
+            }
+            // L2 逻辑过期，异步重建，返回旧数据
+            String redoKey = redisPrefix + ":redoLock:" + id;
+            String existingLock = stringRedisTemplate.opsForValue().get(redoKey);
+            if (existingLock == null) {
+                String lockValue = UUID.randomUUID().toString();
+                executor.submit(() -> reBuildCacheTask(redoKey, lockValue, key, id, dbQuery, time, unit));
+            }
+            T result = JSONUtil.toBean(value, clazz);
+            localCache.put(key, result);
+            return result;
+        }
+        // 3. L1+L2 都未命中，查 DB
+        T result = dbQuery.apply(id);
+        if (result == null) {
+            localCache.put(key, NULL_SENTINEL);
+            return null;
+        }
+        // 回填 L2 + L1
+        setWithLogicExpire(key, result, time, unit);
+        return result;
     }
 
     /**
