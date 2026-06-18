@@ -19,4 +19,9 @@ public class RedisConstants {
     public static final String FEED_KEY = "feed:";
     public static final String SHOP_GEO_KEY = "shop:geo:";
     public static final String USER_SIGN_KEY = "sign:";
+
+    /** 秒杀工单 key: seckill:ticket:{userId}:{voucherId} */
+    public static final String SECKILL_TICKET_KEY = "seckill:ticket:";
+    /** 秒杀工单超时时间（秒），超过此时间视为失败 */
+    public static final Long SECKILL_TICKET_TIMEOUT = 10L;
 }

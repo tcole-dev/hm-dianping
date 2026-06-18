@@ -42,3 +42,9 @@ minio:
 cache:
   max-size: ${CACHE_L1_MAX_SIZE:1000}
   ttl: ${CACHE_L1_TTL:30}
+rocketmq:
+  name-server: ${ROCKETMQ_NAMESRV:localhost:9876}
+  producer:
+    group: hmdp-producer-group
+  consumer:
+    group: hmdp-consumer-group

@@ -1,5 +1,6 @@
 package com.hmdp.service.impl;
 
+import com.hmdp.consumer.SeckillOrderMessage;
 import com.hmdp.entity.SeckillVoucher;
 import com.hmdp.entity.VoucherOrder;
 import com.hmdp.exception.BusinessException;
@@ -8,30 +9,47 @@ import com.hmdp.mapper.VoucherOrderMapper;
 import com.hmdp.service.ISeckillVoucherService;
 import com.hmdp.service.IVoucherOrderService;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
-import com.hmdp.utils.GlobalUniqueIdUtil;
+import com.hmdp.utils.RedisConstants;
 import com.hmdp.utils.UserHolder;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.rocketmq.spring.core.RocketMQTemplate;
 import org.redisson.api.RLock;
 import org.redisson.api.RedissonClient;
-import org.springframework.aop.framework.AopContext;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.messaging.support.MessageBuilder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.LocalDateTime;
+import java.util.HashMap;
+import java.util.Map;
 
+/**
+ * 秒杀下单服务
+ * 同步：校验 + 一人一单 + 扣库存（@Transactional）
+ * 事务提交后：写 PENDING 工单 + 发 MQ 事务消息
+ * 异步：SeckillOrderConsumer 创建订单 → 更新工单为 SUCCESS
+ * 兜底：SeckillCompensationTask 扫描超时 PENDING 工单，补建单或回滚库存
+ */
+@Slf4j
 @Service
 public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, VoucherOrder> implements IVoucherOrderService {
     private final ISeckillVoucherService seckillVoucherService;
-    private final GlobalUniqueIdUtil globalUniqueIdUtil;
     private final RedissonClient redissonClient;
+    private final RocketMQTemplate rocketMQTemplate;
+    private final StringRedisTemplate stringRedisTemplate;
 
-    public VoucherOrderServiceImpl(ISeckillVoucherService seckillVoucherService, GlobalUniqueIdUtil globalUniqueIdUtil, RedissonClient redissonClient) {
+    public VoucherOrderServiceImpl(ISeckillVoucherService seckillVoucherService, RedissonClient redissonClient, RocketMQTemplate rocketMQTemplate, StringRedisTemplate stringRedisTemplate) {
         this.seckillVoucherService = seckillVoucherService;
-        this.globalUniqueIdUtil = globalUniqueIdUtil;
         this.redissonClient = redissonClient;
+        this.rocketMQTemplate = rocketMQTemplate;
+        this.stringRedisTemplate = stringRedisTemplate;
     }
 
     @Override
-    public Long seckillVoucher(Long voucherId) {
+    public String seckillVoucher(Long voucherId) {
         Long userId = UserHolder.getUser().getId();
 
         // 1.查询优惠券
@@ -55,15 +73,18 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
         }
 
         try {
-            VoucherOrderServiceImpl proxy = (VoucherOrderServiceImpl) AopContext.currentProxy();
-            return proxy.createVoucherOrder(voucherId);
+            return createVoucherOrder(voucherId);
         } finally {
             lock.unlock();
         }
     }
 
+    /**
+     * 一人一单校验 + 扣库存 + 事务提交后发 MQ 消息
+     * @return 工单 ID（userId:voucherId），前端轮询用
+     */
     @Transactional
-    public Long createVoucherOrder(Long voucherId) {
+    public String createVoucherOrder(Long voucherId) {
         Long userId = UserHolder.getUser().getId();
 
         // 一人一单校验
@@ -75,7 +96,7 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
             throw new BusinessException(ErrorCode.VOUCHER_ALREADY_PURCHASED);
         }
 
-        // 扣减库存
+        // 扣减库存（事务内，失败自动回滚）
         boolean result = seckillVoucherService.update()
                 .setSql("stock = stock - 1")
                 .eq("voucher_id", voucherId)
@@ -85,13 +106,42 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
             throw new BusinessException(ErrorCode.STOCK_NOT_ENOUGH);
         }
 
-        // 创建订单
-        VoucherOrder voucherOrder = new VoucherOrder();
-        voucherOrder.setUserId(userId);
-        voucherOrder.setVoucherId(voucherId);
-        long orderId = globalUniqueIdUtil.nextId("order");
-        voucherOrder.setId(orderId);
-        save(voucherOrder);
-        return orderId;
+        // 工单 ID
+        String ticketId = userId + ":" + voucherId;
+
+        // 事务提交后执行：写 PENDING 工单 + 发 MQ 事务消息
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                try {
+                    // 写 PENDING 工单到 Redis
+                    Map<String, String> ticket = new HashMap<>(4);
+                    ticket.put("status", "PENDING");
+                    ticket.put("voucherId", voucherId.toString());
+                    ticket.put("userId", userId.toString());
+                    stringRedisTemplate.opsForHash().putAll(
+                            RedisConstants.SECKILL_TICKET_KEY + ticketId, ticket);
+                    stringRedisTemplate.expire(
+                            RedisConstants.SECKILL_TICKET_KEY + ticketId,
+                            RedisConstants.SECKILL_TICKET_TIMEOUT, java.util.concurrent.TimeUnit.SECONDS);
+
+                    // 发送 MQ 事务消息（扣库存已完成，listener 自动 COMMIT）
+                    SeckillOrderMessage msg = new SeckillOrderMessage();
+                    msg.setUserId(userId);
+                    msg.setVoucherId(voucherId);
+                    rocketMQTemplate.sendMessageInTransaction("seckill_order",
+                            MessageBuilder.withPayload(msg)
+                                    .setHeader("userId", userId)
+                                    .setHeader("voucherId", voucherId)
+                                    .build(),
+                            null);
+                    log.info("秒杀工单已创建: ticketId={}", ticketId);
+                } catch (Exception e) {
+                    log.error("秒杀工单创建失败（MQ发送异常）: ticketId={}", ticketId, e);
+                }
+            }
+        });
+
+        return ticketId;
     }
 }
