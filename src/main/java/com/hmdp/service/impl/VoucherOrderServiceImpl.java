@@ -9,6 +9,7 @@ import com.hmdp.mapper.VoucherOrderMapper;
 import com.hmdp.service.ISeckillVoucherService;
 import com.hmdp.service.IVoucherOrderService;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.hmdp.utils.CacheUtil;
 import com.hmdp.utils.RedisConstants;
 import com.hmdp.utils.UserHolder;
 import lombok.extern.slf4j.Slf4j;
@@ -40,20 +41,28 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
     private final RedissonClient redissonClient;
     private final RocketMQTemplate rocketMQTemplate;
     private final StringRedisTemplate stringRedisTemplate;
+    private final CacheUtil cacheUtil;
 
-    public VoucherOrderServiceImpl(ISeckillVoucherService seckillVoucherService, RedissonClient redissonClient, RocketMQTemplate rocketMQTemplate, StringRedisTemplate stringRedisTemplate) {
+    public VoucherOrderServiceImpl(ISeckillVoucherService seckillVoucherService, RedissonClient redissonClient, RocketMQTemplate rocketMQTemplate, StringRedisTemplate stringRedisTemplate, CacheUtil cacheUtil) {
         this.seckillVoucherService = seckillVoucherService;
         this.redissonClient = redissonClient;
         this.rocketMQTemplate = rocketMQTemplate;
         this.stringRedisTemplate = stringRedisTemplate;
+        this.cacheUtil = cacheUtil;
     }
 
     @Override
     public String seckillVoucher(Long voucherId) {
         Long userId = UserHolder.getUser().getId();
 
-        // 1.查询优惠券
-        SeckillVoucher seckillVoucher = seckillVoucherService.getById(voucherId);
+        // 1.查询优惠券（逻辑过期缓存，防击穿）
+        SeckillVoucher seckillVoucher = cacheUtil.queryWithLogicExpire(
+                RedisConstants.SECKILL_VOUCHER_KEY, voucherId,
+                seckillVoucherService::getById, SeckillVoucher.class,
+                30L, java.util.concurrent.TimeUnit.MINUTES);
+        if (seckillVoucher == null) {
+            throw new BusinessException(ErrorCode.VOUCHER_NOT_FOUND);
+        }
         // 2.判断秒杀是否开始/结束
         if (seckillVoucher.getBeginTime().isAfter(LocalDateTime.now())) {
             throw new BusinessException(ErrorCode.SECKILL_NOT_START);
