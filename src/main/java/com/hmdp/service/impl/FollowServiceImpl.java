@@ -2,6 +2,7 @@ package com.hmdp.service.impl;
 
 import com.hmdp.dto.UserDTO;
 import com.hmdp.entity.Follow;
+import com.hmdp.entity.User;
 import com.hmdp.exception.BusinessException;
 import com.hmdp.exception.ErrorCode;
 import com.hmdp.mapper.FollowMapper;
@@ -73,12 +74,14 @@ public class FollowServiceImpl extends ServiceImpl<FollowMapper, Follow> impleme
             return Collections.emptyList();
         }
         List<Long> ids = intersect.stream().map(Long::valueOf).collect(Collectors.toList());
-        return userService.listByIds(ids).stream().map(user -> {
+        return ids.stream().map(uid -> {
+            User user = userService.queryById(uid);
+            if (user == null) return null;
             UserDTO userDTO = new UserDTO();
             userDTO.setId(user.getId());
             userDTO.setIcon(user.getIcon());
             userDTO.setNickName(user.getNickName());
             return userDTO;
-        }).collect(Collectors.toList());
+        }).filter(java.util.Objects::nonNull).collect(Collectors.toList());
     }
 }

@@ -13,6 +13,7 @@ import com.hmdp.exception.BusinessException;
 import com.hmdp.exception.ErrorCode;
 import com.hmdp.mapper.UserMapper;
 import com.hmdp.service.IUserService;
+import com.hmdp.utils.CacheUtil;
 import com.hmdp.utils.RedisConstants;
 import com.hmdp.utils.RegexUtils;
 import com.hmdp.utils.UserHolder;
@@ -37,6 +38,14 @@ import static com.hmdp.utils.SystemConstants.USER_NICK_NAME_PREFIX;
 public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IUserService {
     @Autowired
     private StringRedisTemplate stringRedisTemplate;
+    @Autowired
+    private CacheUtil cacheUtil;
+
+    @Override
+    public User queryById(Long id) {
+        return cacheUtil.queryWithTwoLevel(RedisConstants.CACHE_USER_KEY, id,
+                super::getById, User.class, 30L, TimeUnit.MINUTES);
+    }
 
     @Override
     public void sendCode(String phone) {

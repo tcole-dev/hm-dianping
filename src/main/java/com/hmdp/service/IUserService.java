@@ -7,6 +7,7 @@ import com.hmdp.entity.User;
 import javax.servlet.http.HttpServletRequest;
 
 public interface IUserService extends IService<User> {
+    User queryById(Long id);
     void sendCode(String phone);
     String login(LoginFormDTO loginForm);
     void logout(HttpServletRequest request);

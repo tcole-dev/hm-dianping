@@ -12,7 +12,6 @@ import com.hmdp.service.IBlogService;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.hmdp.service.IFollowService;
 import com.hmdp.service.IUserService;
-import com.hmdp.utils.LargeDataThreadPool;
 import com.hmdp.utils.RedisConstants;
 import com.hmdp.utils.UserHolder;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -27,14 +26,6 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.Executor;
 
-/**
- * <p>
- *  服务实现类
- * </p>
- *
- * @author 虎哥
- * @since 2021-12-22
- */
 @Service
 public class BlogServiceImpl extends ServiceImpl<BlogMapper, Blog> implements IBlogService {
     private Executor largeDataThreadPool;
@@ -127,12 +118,13 @@ public class BlogServiceImpl extends ServiceImpl<BlogMapper, Blog> implements IB
         return Result.ok(ans);
     }
 
-    // 补全blog中的用户信息
-    private void completeBlog (Blog blog) {
-        User user = iUserService.getById(blog.getUserId());
-        blog.setIcon(user.getIcon());
-        blog.setName(user.getNickName());
-        blog.setName(user.getNickName());
+    // 补全blog中的用户信息（走二级缓存，避免 N+1 查询）
+    private void completeBlog(Blog blog) {
+        User user = iUserService.queryById(blog.getUserId());
+        if (user != null) {
+            blog.setIcon(user.getIcon());
+            blog.setName(user.getNickName());
+        }
     }
 
     // 检查blog中的点赞信息
