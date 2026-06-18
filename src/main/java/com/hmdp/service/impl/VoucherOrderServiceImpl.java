@@ -96,14 +96,22 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
     public String createVoucherOrder(Long voucherId) {
         Long userId = UserHolder.getUser().getId();
 
-        // 一人一单校验
+        // 一人一单校验（空对象缓存防穿透：首次查询后缓存"未下单"标记）
+        String orderCacheKey = RedisConstants.SECKILL_ORDER_KEY + userId + ":" + voucherId;
+        String cached = stringRedisTemplate.opsForValue().get(orderCacheKey);
+        if ("1".equals(cached)) {
+            throw new BusinessException(ErrorCode.VOUCHER_ALREADY_PURCHASED);
+        }
         Long count = query()
                 .eq("user_id", userId)
                 .eq("voucher_id", voucherId)
                 .count();
         if (count > 0) {
+            stringRedisTemplate.opsForValue().set(orderCacheKey, "1", 30, java.util.concurrent.TimeUnit.MINUTES);
             throw new BusinessException(ErrorCode.VOUCHER_ALREADY_PURCHASED);
         }
+        // 缓存"未下单"标记，后续请求不再穿透 DB
+        stringRedisTemplate.opsForValue().set(orderCacheKey, "0", 30, java.util.concurrent.TimeUnit.MINUTES);
 
         // 扣减库存（事务内，失败自动回滚）
         boolean result = seckillVoucherService.update()
