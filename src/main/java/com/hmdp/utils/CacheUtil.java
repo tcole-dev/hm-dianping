@@ -72,11 +72,13 @@ public class CacheUtil {
 
     /**
      * 带有逻辑过期的缓存（同步更新 L1）
+     * key 不设物理 TTL，由 RedisData.expireTime 判断逻辑过期
+     * 避免逻辑过期期间无请求时 key 被物理删除导致击穿
      */
     public void setWithLogicExpire(String key, Object value, Long time, TimeUnit unit) {
-        long seconds = unit.toSeconds(time);    // 逻辑过期时间
+        long seconds = unit.toSeconds(time);
         RedisData redisData = new RedisData(LocalDateTime.now().plusSeconds(seconds), value);
-        stringRedisTemplate.opsForValue().set(key, JSONUtil.toJsonStr(redisData), seconds * 2, TimeUnit.SECONDS);
+        stringRedisTemplate.opsForValue().set(key, JSONUtil.toJsonStr(redisData));
         localCache.put(key, value);
     }
 
@@ -226,7 +228,7 @@ public class CacheUtil {
      * @param <T> 缓存的返回值类型
      */
     private <ID,T> void reBuildCacheTask(String redoKey, String lockValue,String key, ID id, Function<ID, T> dbQuery, Long time, TimeUnit unit) {
-        // 获取锁失败，则返回旧数据
+        // 获取锁失败，说明已有线程进行缓存重建
         if (!tryLock(redoKey, lockValue)) {
             return;
         }

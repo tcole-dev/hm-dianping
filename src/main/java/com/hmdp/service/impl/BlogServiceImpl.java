@@ -12,6 +12,7 @@ import com.hmdp.service.IBlogService;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.hmdp.service.IFollowService;
 import com.hmdp.service.IUserService;
+import com.hmdp.utils.CacheUtil;
 import com.hmdp.utils.RedisConstants;
 import com.hmdp.utils.UserHolder;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -28,26 +29,37 @@ import java.util.concurrent.Executor;
 
 @Service
 public class BlogServiceImpl extends ServiceImpl<BlogMapper, Blog> implements IBlogService {
+
     private Executor largeDataThreadPool;
     private IFollowService followService;
     private StringRedisTemplate stringRedisTemplate;
     private IUserService iUserService;
+    private CacheUtil cacheUtil;
+
+
     public BlogServiceImpl(
             @Qualifier("getExecutor") Executor largeDataThreadPool,
             IFollowService followService,
             StringRedisTemplate stringRedisTemplate,
-            IUserService iUserService
+            IUserService iUserService,
+            CacheUtil cacheUtil
     ) {
         this.largeDataThreadPool = largeDataThreadPool;
         this.followService = followService;
         this.stringRedisTemplate = stringRedisTemplate;
         this.iUserService = iUserService;
+        this.cacheUtil = cacheUtil;
     }
+
+    
     @Override
     public Long saveBlog(Blog blog) {
         if (!save(blog)) {
             throw new BusinessException(ErrorCode.BLOG_SAVE_FAIL);
         }
+        // 预热缓存
+        cacheUtil.setWithLogicExpire(RedisConstants.CACHE_BLOG_KEY + blog.getId(),
+                blog, 30L, java.util.concurrent.TimeUnit.MINUTES);
         largeDataThreadPool.execute(() -> {
             List<Follow> follows = followService.query()
                     .eq("follow_id", blog.getUserId()).list();
@@ -94,8 +106,15 @@ public class BlogServiceImpl extends ServiceImpl<BlogMapper, Blog> implements IB
         // 若minTime == max，则说明本次查询的blog中，其实是在查询上次剩下的那个时间戳的数据，需要将offset加上cnt
         cnt = minTime == max ? offset + cnt : cnt;
 
-        // 查询 Blog 数据（不拼接 SQL，避免注入风险）
-        List<Blog> blogList = query().in("id", Ids).list();
+        // 逐个走逻辑过期缓存（防击穿），避免批量穿透 DB
+        List<Blog> blogList = new ArrayList<>(Ids.size());
+        for (Long blogId : Ids) {
+            Blog blog = cacheUtil.queryWithLogicExpire(RedisConstants.CACHE_BLOG_KEY, blogId,
+                    this::getById, Blog.class, 30L, java.util.concurrent.TimeUnit.MINUTES);
+            if (blog != null) {
+                blogList.add(blog);
+            }
+        }
         // Java 层按 ZSet 时间戳顺序排列
         var orderMap = new HashMap<Long, Integer>();
         for (int i = 0; i < Ids.size(); i++) {
